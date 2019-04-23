@@ -28,21 +28,22 @@ def start(bot, update):
                               " хотел бы получать прогноз погоды.")
 
 
-def task(bot, job):
+def task(bot, job, context2, context3):
     if users[job.context]['pogoda']:
-        response = requests.post(weather.format(users[job.context]['city']))
+        response = requests.post(weather.format(users[job.context.message.chat_id]['city']))
         response = requests.post(response).json()
         if response['cod'] == 200:
             descr = response['weather'][0]['description']
             temp = response['main']['temp'] - 273
             millibar = response['main']['pressure']
             vlazhn = response['main']['humidity']
-            bot.send_message(job.context, text='Описание - {}\nТемпература = {}\n'
-                                               'Давление(в миллибарах) - {}\nВлажность - {}'
+            bot.send_message(job.context.message.chat_id, text='Описание - {}\nТемпература = {}\n'
+                                                               'Давление(в миллибарах) - {}\nВлажность - {}'
                              .format(descr, str(temp), str(millibar), str(vlazhn)))
+            set_timer(bot, job.context, 24*60, context2, context3)
         else:
             users[job.context]['pogoda'] = False
-            bot.send_message(job.context, text='Кажется, такого города нет.')
+            bot.send_message(job.context.message.chat_id, text='Кажется, такого города нет.')
 
 
 def set_timer(bot, update, args, job_queue, chat_data):
@@ -50,7 +51,7 @@ def set_timer(bot, update, args, job_queue, chat_data):
     reply_keyboard = [['/close']]
     markup = ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=False)
     delay = int(args)
-    job = job_queue.run_once(task, delay, context=update.message.chat_id)
+    job = job_queue.run_once(task, delay, context=update, context2=job_queue, context3=chat_data)
 
     chat_data['job'] = job
 
