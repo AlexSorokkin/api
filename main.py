@@ -1,6 +1,5 @@
 from telegram.ext import Updater, MessageHandler, Filters, CommandHandler
 import random
-import json
 import requests
 from telegram import ReplyKeyboardRemove, ReplyKeyboardMarkup
 
@@ -18,6 +17,13 @@ translate_key = 'trnsl.1.1.20190405T212758Z.88c300bbd7a9189d.b35f51c6e1052bcc1bf
 
 translator_uri = "https://translate.yandex.net/api/v1.5/tr.json/translate"
 
+geocoder_request = "http://geocode-maps.yandex.ru/1.x/?geocode={}&format=json"
+
+search_api_server = "https://search-maps.yandex.ru/v1/"
+
+search_api_key = "dda3ddba-c9ea-4ead-9010-f43fbc15c6e3"
+
+map_api_server = "http://static-maps.yandex.ru/1.x/"
 
 
 def close_keyboard(bot, update, job_queue, chat_data):
@@ -32,7 +38,8 @@ def close_keyboard(bot, update, job_queue, chat_data):
 
 
 def start(bot, update):
-    users[update.message.chat_id] = {'start': True, 'pogoda': True, 'wiki': False, 'napr': 'en-ru', 'tran': False}
+    users[update.message.chat_id] = {'start': True, 'pogoda': True, 'wiki': False, 'napr': 'en-ru', 'tran': False,
+                                     'bliz': False}
     update.message.reply_text("Привет, я бот и я могу кое в чём тебе помочь!\nДля начала напиши город для которого ты"
                               " хотел бы получать прогноз погоды.")
 
@@ -129,6 +136,53 @@ def translater(bot, update, mes):
                                   reply_markup=markup)
 
 
+def geocoder(bot, update, mes):
+    try:
+        geocoder_uri = geocoder_request_template = \
+            "http://geocode-maps.yandex.ru/1.x/"
+        response = requests.get(geocoder_uri, params={
+            "format": "json",
+            "geocode": users[update.message.chat_id]['from_where']
+        })
+        if not response:
+            update.message.reply_text("Ошибка выполнения запроса:")
+            update.message.reply_text(geocoder_request)
+            update.message.reply_text("Http статус:", response.status_code, "(", response.reason, ")")
+            return
+        toponym1 = response.json()["response"]["GeoObjectCollection"]["featureMember"][0]["GeoObject"]["Point"]["pos"]
+        toponym1 = ','.join(toponym1.split(' '))
+
+        search_params = {
+            "apikey": search_api_key,
+            "text": mes,
+            "lang": "ru_RU",
+            "ll": toponym1,
+        }
+        response = requests.get(search_api_server, params=search_params)
+        if not response:
+            update.message.reply_text("Что-то пошло не так. Возможно с сервером лажа или с вашим запросом.")
+            return
+
+        json_response = response.json()
+        organization = json_response["features"][0]
+        org_name = organization["properties"]["CompanyMetaData"]["name"]
+        toponym2 = ','.join([str(organization['geometry']['coordinates'][0]),
+                             str(organization['geometry']['coordinates'][1])])
+        org_address = organization["properties"]["CompanyMetaData"]["address"]
+        for_photo = org_name + '\nАдрес: ' + org_address
+        #
+        static_api_request = \
+            "http://static-maps.yandex.ru/1.x/?l=map&pt={},ya_ru~{},pm2ntm".format(toponym1, toponym2)
+        bot.sendPhoto(
+            update.message.chat.id,
+            static_api_request,
+            caption=for_photo
+        )
+
+    except Exception:
+        update.message.reply_text("Что-то пошло не так. Возможно с сервером лажа или с вашим запросом.")
+
+
 def text_m(bot, update, job_queue, chat_data):
     global reply_keyboard, markup
     text_mes = update.message.text
@@ -155,7 +209,16 @@ def text_m(bot, update, job_queue, chat_data):
 
     elif users[update.message.chat_id]['tran']:
         translater(bot, update, text_mes)
-        users[update.message.chat_id]['tran'] = True
+        users[update.message.chat_id]['tran'] = False
+
+    elif users[update.message.chat_id]['bliz'] == True:
+        users[update.message.chat_id]['bliz'] = "True444"
+        users[update.message.chat_id]['from_where'] = text_mes
+        update.message.reply_text('Теперь введите то, что нужно найти(магазин, аптека и т.д.)')
+
+    elif users[update.message.chat_id]['bliz'] == "True444":
+        users[update.message.chat_id]['bliz'] = False
+        geocoder(bot, update, text_mes)
 
     elif text_mes == 'Поиск Wiki':
         update.message.reply_text('Введите, что найти в Википедии', reply_markup=ReplyKeyboardRemove())
@@ -163,10 +226,15 @@ def text_m(bot, update, job_queue, chat_data):
 
     elif text_mes == 'Курс валют':
         cb_rf(bot, update)
+
     elif text_mes == 'Переводчик':
         update.message.reply_text('Ну-с, вводите то, что нужно перевести. Изначально ru-en'
                                   '\nТакже можно выбрать направление перевода.', reply_markup=markup2)
         users[update.message.chat_id]['tran'] = True
+
+    elif text_mes == 'Ближайшее...':
+        users[update.message.chat_id]['bliz'] = True
+        update.message.reply_text('Введите своё местоположнение или место от которого искать(город, улица, дом)')
 
     elif text_mes == '30 секунд':
         update.message.reply_text('Это 0.5 минуты)')
@@ -212,7 +280,6 @@ def per2(bot, update):
     update.message.reply_text("Ок, изменил")
 
 
-
 def main():
     updater = Updater("812759520:AAG5XoYRenwYAj04vGQGlcgWL4uX57UfAX4")
 
@@ -245,4 +312,3 @@ if __name__ == '__main__':
     markup = ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=False)
     markup2 = ReplyKeyboardMarkup(reply_keyboard2, one_time_keyboard=False)
     main()
-
