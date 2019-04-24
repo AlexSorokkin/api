@@ -12,6 +12,8 @@ weather = 'https://api.openweathermap.org/data/2.5/weather?q={}&appid=341ff1410c
 
 wiki_search = 'https://ru.wikipedia.org/w/api.php?action=opensearch&search={}&prop=info&format=json&inprop=url'
 
+cb_rf_search = 'https://www.cbr-xml-daily.ru/daily_json.js'
+
 
 def close_keyboard(bot, update, job_queue, chat_data):
     global reply_keyboard, markup
@@ -30,31 +32,28 @@ def start(bot, update):
                               " хотел бы получать прогноз погоды.")
 
 
-def task(bot, job, context2, context3):
-    if users[job.context]['pogoda']:
-        response = requests.post(weather.format(users[job.context.message.chat_id]['city']))
-        response = requests.post(response).json()
+def task(bot, job):
+    if users[job.context[0].message.chat_id]['pogoda']:
+        response = requests.post(weather.format(users[job.context[0].message.chat_id]['city']))
+        response = response.json()
         if response['cod'] == 200:
             descr = response['weather'][0]['description']
             temp = round(response['main']['temp'] - 273, 2)
             millibar = response['main']['pressure']
             vlazhn = response['main']['humidity']
-            bot.send_message(job.context.message.chat_id, text='Описание - {}\nТемпература = {}\n'
+            bot.send_message(job.context[0].message.chat_id, text='Описание - {}\nТемпература = {} цельсия\n'
                                                                'Давление(в миллибарах) - {}\nВлажность - {}%'
                              .format(descr, str(temp), str(millibar), str(vlazhn)))
-            set_timer(bot, job.context, 24*3600, context2, context3)
+            set_timer(bot, job.context[0], 24*3600, job.context[1], job.context[2])
         else:
-            users[job.context]['pogoda'] = False
-            bot.send_message(job.context.message.chat_id, text='Кажется, такого города нет.')
+            users[job.context[0].message.chat_id]['pogoda'] = False
+            bot.send_message(job.context[0].message.chat_id, text='Кажется, такого города нет.')
 
 
 def set_timer(bot, update, args, job_queue, chat_data):
     global reply_keyboard, markup
-    reply_keyboard = [['/close']]
-    markup = ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=False)
-    delay = int(args)
-    job = job_queue.run_once(task, delay, context=update, context2=job_queue, context3=chat_data)
-
+    delay = int(args)+1
+    job = job_queue.run_once(task, delay, context=[update, job_queue, chat_data])
     chat_data['job'] = job
 
 
@@ -73,31 +72,52 @@ def timer(bot, update):
 
 
 def wiki(bot, update, mes):
-    response = requests.post(wiki_search.format(mes))
-    response = requests.post(response).json()
-    if response['cod'] == 200:
-        try:
-            update.message.reply_text("Вот, что удалось найти:\n{}\nА вот ссыль: {}"
-                                      .format(response[2][0], response[3][0]),
-                                      reply_markup=markup)
-        except Exception:
+    try:
+        response = requests.post(wiki_search.format(mes))
+        if response:
+            response = response.json()
+            try:
+                update.message.reply_text("Вот, что удалось найти:\n{}\nА вот ссыль: {}"
+                                          .format(response[2][0], response[3][0]),
+                                          reply_markup=markup)
+            except Exception:
+                update.message.reply_text("Что-то пошло не так. Возможно с сервером лажа или с вашим запросом.",
+                                          reply_markup=markup)
+        else:
             update.message.reply_text("Что-то пошло не так. Возможно с сервером лажа или с вашим запросом.",
                                       reply_markup=markup)
-    else:
+    except Exception:
         update.message.reply_text("Что-то пошло не так. Возможно с сервером лажа или с вашим запросом.",
                                   reply_markup=markup)
+
+
+def cb_rf(bot, update):
+    try:
+        response = requests.get(cb_rf_search)
+        if response:
+            response = response.json()
+            try:
+                update.message.reply_text('Рубль - Евро: {} = 1\nРубль - Доллар: {} = 1'
+                                          .format(response['Valute']['EUR']['Value'],
+                                                  response['Valute']['USD']['Value']))
+            except Exception:
+                update.message.reply_text("Что-то пошло не так. Возможно с сервером лажа или с вашим запросом.")
+        else:
+            update.message.reply_text("Что-то пошло не так. Возможно с сервером лажа или с вашим запросом.")
+    except Exception:
+        update.message.reply_text("Что-то пошло не так. Возможно с сервером лажа или с вашим запросом.")
 
 
 def text_m(bot, update, job_queue, chat_data):
     global reply_keyboard, markup
     text_mes = update.message.text
-    if users[update.message.chat_id]['start']:
-        users[update.message.chat_id]['start'] = 'False'
+    if users[update.message.chat_id]['start'] == True:
+        users[update.message.chat_id]['start'] = 'False4444'
         users[update.message.chat_id]['city'] = text_mes
-        update.message.reply_text('Принял. Через сколько часов сделать первое оповещание(далее каждые 24 часа).\n '
+        update.message.reply_text('Принял. Через сколько часов сделать первое оповещание(далее каждые 24 часа)?\n '
                                   'Написать нужно только число, иначе за ответ примется 12')
         return
-    elif users[update.message.chat_id]['start'] == "False":
+    elif users[update.message.chat_id]['start'] == "False4444":
         try:
             text_mes = int(text_mes)
         except Exception:
@@ -111,12 +131,17 @@ def text_m(bot, update, job_queue, chat_data):
     elif text_mes == 'Поиск Wiki':
         update.message.reply_text('Введите, что найти в Википедии', reply_markup=ReplyKeyboardRemove())
         users[update.message.chat_id]['wiki'] = True
+    elif text_mes == 'Курс валют':
+        cb_rf(bot, update)
     elif text_mes == '30 секунд':
-        set_timer(bot, update, 30, job_queue, chat_data)
+        update.message.reply_text('Это 0.5 минуты)')
+        # set_timer(bot, update, 30, job_queue, chat_data)
     elif text_mes == '1 минута':
-        set_timer(bot, update, 60, job_queue, chat_data)
+        update.message.reply_text('1 минута, казалось бы так мало, а что если задуматься?')
+        # set_timer(bot, update, 60, job_queue, chat_data)
     elif text_mes == '5 минут':
-        set_timer(bot, update, 300, job_queue, chat_data)
+        update.message.reply_text('Ну да, была такая песня')
+        # set_timer(bot, update, 300, job_queue, chat_data)
     elif text_mes == 'один шестигранный кубик':
         update.message.reply_text(str(random.randint(1, 6)))
     elif text_mes == '2 шестигранных кубика':
