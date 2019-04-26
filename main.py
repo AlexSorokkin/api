@@ -4,7 +4,7 @@ import requests
 from telegram import ReplyKeyboardRemove, ReplyKeyboardMarkup
 
 
-timer = {}
+timer = {}  # Данные о пользователе
 users = {}
 
 weather = 'https://api.openweathermap.org/data/2.5/weather?q={}&appid=341ff1410c35f02ad283bd301cfd9001'
@@ -37,14 +37,14 @@ def close_keyboard(bot, update, job_queue, chat_data):
     update.message.reply_text('Хорошо!', reply_markup=markup)
 
 
-def start(bot, update):
+def start(bot, update):  # Старт
     users[update.message.chat_id] = {'start': True, 'pogoda': True, 'wiki': False, 'napr': 'en-ru', 'tran': False,
                                      'bliz': False}
     update.message.reply_text("Привет, я бот и я могу кое в чём тебе помочь!\nДля начала напиши город для которого ты"
                               " хотел бы получать прогноз погоды.")
 
 
-def task(bot, job):
+def task(bot, job):  # Обработка погоды и отправка пользователю
     if users[job.context[0].message.chat_id]['pogoda']:
         response = requests.post(weather.format(users[job.context[0].message.chat_id]['city']))
         response = response.json()
@@ -62,14 +62,14 @@ def task(bot, job):
             bot.send_message(job.context[0].message.chat_id, text='Кажется, такого города нет.')
 
 
-def set_timer(bot, update, args, job_queue, chat_data):
+def set_timer(bot, update, args, job_queue, chat_data):  # Ежедневная отправка
     global reply_keyboard, markup
     delay = int(args)+1
     job = job_queue.run_once(task, delay, context=[update, job_queue, chat_data])
     chat_data['job'] = job
 
 
-def stop(bot, update):
+def stop(bot, update):  # Конец отправки погоды
     users[update.message.chat_id]['pogoda'] = False
     update.message.reply_text('Больше не буду(\n/start для ввода города')
 
@@ -83,7 +83,7 @@ def timer(bot, update):
                               reply_markup=markup)
 
 
-def wiki(bot, update, mes):
+def wiki(bot, update, mes):  # Обработка запросов по википедии
     try:
         response = requests.post(wiki_search.format(mes))
         if response:
@@ -103,7 +103,7 @@ def wiki(bot, update, mes):
                                   reply_markup=markup)
 
 
-def cb_rf(bot, update):
+def cb_rf(bot, update):  # Обработка запроса валют
     try:
         response = requests.get(cb_rf_search)
         if response:
@@ -120,7 +120,7 @@ def cb_rf(bot, update):
         update.message.reply_text("Что-то пошло не так. Возможно с сервером лажа или с вашим запросом.")
 
 
-def translater(bot, update, mes):
+def translater(bot, update, mes):  # Обработка запросов по переводу
     try:
         response = requests.get(
             translator_uri,
@@ -136,7 +136,7 @@ def translater(bot, update, mes):
                                   reply_markup=markup)
 
 
-def geocoder(bot, update, mes):
+def geocoder(bot, update, mes):  # Отправка фото "Ближайшее..."
     try:
         geocoder_uri = geocoder_request_template = \
             "http://geocode-maps.yandex.ru/1.x/"
@@ -183,7 +183,7 @@ def geocoder(bot, update, mes):
         update.message.reply_text("Что-то пошло не так. Возможно с сервером лажа или с вашим запросом.")
 
 
-def text_m(bot, update, job_queue, chat_data):
+def text_m(bot, update, job_queue, chat_data):  # обработка сообщений
     global reply_keyboard, markup
     text_mes = update.message.text
 
@@ -261,7 +261,7 @@ def text_m(bot, update, job_queue, chat_data):
         update.message.reply_text('Не за что)')
 
 
-def help(bot, update):
+def help(bot, update):  # /help
     update.message.reply_text('Поиск Wiki - поиск в Википедии краткой информации по запросу пользователя.\n'
                               'Переводчик - переводы en-ru ru-en.\n'
                               'Курс валют - берётся с ЦБ РФ.\n'
@@ -270,12 +270,12 @@ def help(bot, update):
                               '/stop - чтобы прекратить рассылку погоды.')
 
 
-def per1(bot, update):
+def per1(bot, update):  # ревёрс переводчика
     users[update.message.chat_id]['napr'] = 'ru-en'
     update.message.reply_text("Ок, изменил")
 
 
-def per2(bot, update):
+def per2(bot, update):  # ревёрс переводчика
     users[update.message.chat_id]['napr'] = 'en-ru'
     update.message.reply_text("Ок, изменил")
 
