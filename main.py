@@ -1,11 +1,12 @@
 from telegram.ext import Updater, MessageHandler, Filters, CommandHandler
 import random
 import requests
+import sqlite3
+import datetime
 from telegram import ReplyKeyboardRemove, ReplyKeyboardMarkup
 
 
-timer = {}  # Данные о пользователе
-users = {}
+users = {}   # Данные о пользователе
 
 weather = 'https://api.openweathermap.org/data/2.5/weather?q={}&appid=341ff1410c35f02ad283bd301cfd9001'
 
@@ -26,6 +27,78 @@ search_api_key = "dda3ddba-c9ea-4ead-9010-f43fbc15c6e3"
 map_api_server = "http://static-maps.yandex.ru/1.x/"
 
 
+class DB:  # база данных
+    def __init__(self):
+        conn = sqlite3.connect('server.db', check_same_thread=False)
+        self.conn = conn
+
+    def get_connection(self):
+        return self.conn
+
+    def __del__(self):
+        self.conn.close()
+
+
+class NewsModel:  # class постов в базе данных
+    def __init__(self, connection):
+        self.connection = connection
+
+    def init_table(self):
+        cursor = self.connection.cursor()
+        cursor.execute('''CREATE TABLE IF NOT EXISTS posts 
+                            (id INTEGER PRIMARY KEY AUTOINCREMENT, 
+                             start VARCHAR(100),
+                             pogoda VARCHAR(1000),
+                             wiki VARCHAR(100),
+                             napr VARCHAR(100),
+                             tran VARCHAR(100),
+                             bliz VARCHAR(100),
+                             from_where VARCHAR(100),
+                             user_id VARCHAR(100),
+                             timecode VARCHAR(100)
+                             )''')
+        cursor.close()
+        self.connection.commit()
+
+    def insert(self, title, content, level_img, level1, user_id, six, seven):
+        cursor = self.connection.cursor()
+
+        cursor.execute('''INSERT INTO posts 
+                          (start, pogoda, wiki, napr, tran, bliz, from_where, user_id, timecode) 
+                          VALUES (?,?,?,?,?,?,?,?,?)''', (title, content, level_img, level1, str(user_id), six, '',
+                                                      seven, '1 0'))
+        cursor.close()
+        self.connection.commit()
+
+    def update(self, id, what, now):
+        cursor = self.connection.cursor()
+        cursor.execute('''UPDATE posts SET 
+                                   {} = ? 
+                                   WHERE user_id = ?'''.format(what), (now, id))
+        cursor.close()
+        self.connection.commit()
+
+    def get(self, news_id, what):
+        cursor = self.connection.cursor()
+        cursor.execute("SELECT {} FROM posts WHERE user_id = ?".format(what), ([str(news_id)]))
+        row = cursor.fetchone()
+        return row
+
+    def get_all(self, user_id=None, set_up=None):
+        cursor = self.connection.cursor()
+        cursor.execute("SELECT * FROM posts")
+        rows = cursor.fetchall()
+        if set_up:
+            rows = sorted(rows)
+        return rows
+
+    def delete(self, news_id):
+        cursor = self.connection.cursor()
+        cursor.execute('''DELETE FROM posts WHERE id = ?''', ([str(news_id)]))
+        cursor.close()
+        self.connection.commit()
+
+
 def close_keyboard(bot, update, job_queue, chat_data):
     global reply_keyboard, markup
     reply_keyboard = [['/dice', '/timer']]
@@ -38,15 +111,15 @@ def close_keyboard(bot, update, job_queue, chat_data):
 
 
 def start(bot, update):  # Старт
-    users[update.message.chat_id] = {'start': True, 'pogoda': True, 'wiki': False, 'napr': 'en-ru', 'tran': False,
-                                     'bliz': False}
+    news.insert('True', 'True', 'False', 'en-ru', 'False', 'False', update.message.chat_id)
     update.message.reply_text("Привет, я бот и я могу кое в чём тебе помочь!\nДля начала напиши город для которого ты"
                               " хотел бы получать прогноз погоды.")
 
 
 def task(bot, job):  # Обработка погоды и отправка пользователю
-    if users[job.context[0].message.chat_id]['pogoda']:
-        response = requests.post(weather.format(users[job.context[0].message.chat_id]['city']))
+
+    if news.get(job.context[0].message.chat_id, 'pogoda'):
+        response = requests.post(weather.format(news.get(job.context[0].message.chat_id, 'city')))
         response = response.json()
         if response['cod'] == 200:
             descr = response['weather'][0]['description']
@@ -58,7 +131,7 @@ def task(bot, job):  # Обработка погоды и отправка по�
                              .format(descr, str(temp), str(millibar), str(vlazhn)))
             set_timer(bot, job.context[0], 24*3600, job.context[1], job.context[2])
         else:
-            users[job.context[0].message.chat_id]['pogoda'] = False
+            news.update(job.context[0].message.chat_id, 'pogoda', 'False')
             bot.send_message(job.context[0].message.chat_id, text='Кажется, такого города нет.')
 
 
@@ -70,7 +143,7 @@ def set_timer(bot, update, args, job_queue, chat_data):  # Ежедневная 
 
 
 def stop(bot, update):  # Конец отправки погоды
-    users[update.message.chat_id]['pogoda'] = False
+    news.update(update.message.chat_id, 'pogoda', 'False')
     update.message.reply_text('Больше не буду(\n/start для ввода города')
 
 
@@ -126,7 +199,7 @@ def translater(bot, update, mes):  # Обработка запросов по п
             translator_uri,
             params={
                 "key": translate_key,
-                "lang": users[update.message.chat_id]['napr'],
+                "lang": news.get(update.message.chat_id, 'napr'),
                 "text": mes
             })
         update.message.reply_text(
@@ -142,7 +215,7 @@ def geocoder(bot, update, mes):  # Отправка фото "Ближайшее
             "http://geocode-maps.yandex.ru/1.x/"
         response = requests.get(geocoder_uri, params={
             "format": "json",
-            "geocode": users[update.message.chat_id]['from_where']
+            "geocode": news.get(update.message.chat_id, 'from_where')
         })
         if not response:
             update.message.reply_text("Ошибка выполнения запроса:")
@@ -186,43 +259,44 @@ def geocoder(bot, update, mes):  # Отправка фото "Ближайшее
 def text_m(bot, update, job_queue, chat_data):  # обработка сообщений
     global reply_keyboard, markup
     text_mes = update.message.text
+    print(news.get(update.message.chat_id, 'start'))
 
-    if users[update.message.chat_id]['start'] == True:
-        users[update.message.chat_id]['start'] = 'False4444'
-        users[update.message.chat_id]['city'] = text_mes
+    if news.get(update.message.chat_id, 'start') == 'True':
+        news.update(update.message.chat_id, 'start', 'False4444')
+        news.update(update.message.chat_id, 'city', 'text_mes')
         update.message.reply_text('Принял. Через сколько часов сделать первое оповещание(далее каждые 24 часа)?\n '
                                   'Написать нужно только число, иначе за ответ примется 12')
         return
 
-    elif users[update.message.chat_id]['start'] == "False4444":
+    elif news.get(update.message.chat_id, 'start') == "False4444":
         try:
             text_mes = int(text_mes)
         except Exception:
             text_mes = 12
         set_timer(bot, update, text_mes*3600, job_queue, chat_data)
-        users[update.message.chat_id]['start'] = False
+        news.update(update.message.chat_id, 'start', 'False')
         update.message.reply_text('Ok!', reply_markup=markup)
 
-    elif users[update.message.chat_id]['wiki']:
+    elif news.get(update.message.chat_id, 'wiki') == 'True':
         wiki(bot, update, text_mes)
-        users[update.message.chat_id]['wiki'] = False
+        news.update(update.message.chat_id, 'wiki', 'False')
 
-    elif users[update.message.chat_id]['tran']:
+    elif news.get(update.message.chat_id, 'tran') == 'True':
         translater(bot, update, text_mes)
-        users[update.message.chat_id]['tran'] = False
+        news.update(update.message.chat_id, 'tran', 'False')
 
-    elif users[update.message.chat_id]['bliz'] == True:
-        users[update.message.chat_id]['bliz'] = "True444"
-        users[update.message.chat_id]['from_where'] = text_mes
+    elif news.get(update.message.chat_id, 'bliz') == 'True':
+        news.update(update.message.chat_id, 'bliz', 'True444')
+        news.update(update.message.chat_id, 'from_where', text_mes)
         update.message.reply_text('Теперь введите то, что нужно найти(магазин, аптека и т.д.)')
 
-    elif users[update.message.chat_id]['bliz'] == "True444":
-        users[update.message.chat_id]['bliz'] = False
+    elif news.get(update.message.chat_id, 'bliz') == "True444":
+        news.update(update.message.chat_id, 'bliz', 'False')
         geocoder(bot, update, text_mes)
 
     elif text_mes == 'Поиск Wiki':
         update.message.reply_text('Введите, что найти в Википедии', reply_markup=ReplyKeyboardRemove())
-        users[update.message.chat_id]['wiki'] = True
+        news.update(update.message.chat_id, 'wiki', 'True')
 
     elif text_mes == 'Курс валют':
         cb_rf(bot, update)
@@ -230,10 +304,10 @@ def text_m(bot, update, job_queue, chat_data):  # обработка сообщ�
     elif text_mes == 'Переводчик':
         update.message.reply_text('Ну-с, вводите то, что нужно перевести. Изначально ru-en'
                                   '\nТакже можно выбрать направление перевода.', reply_markup=markup2)
-        users[update.message.chat_id]['tran'] = True
+        news.update(update.message.chat_id, 'tran', 'True')
 
     elif text_mes == 'Ближайшее...':
-        users[update.message.chat_id]['bliz'] = True
+        news.update(update.message.chat_id, 'bliz', 'True')
         update.message.reply_text('Введите своё местоположнение или место от которого искать(город, улица, дом)')
 
     elif text_mes == '30 секунд':
@@ -305,6 +379,9 @@ def main():
 
 
 if __name__ == '__main__':
+    Artem = DB()
+    news = NewsModel(Artem.get_connection())
+    news.init_table()
     reply_keyboard = [['Поиск Wiki', 'Переводчик'],
                       ['Курс валют', 'Ближайшее...'],
                       ['/stop', '/help']]
