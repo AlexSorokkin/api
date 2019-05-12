@@ -245,7 +245,7 @@ def geocoder(bot, update, mes):  # Отправка фото "Ближайшее
             "ll": toponym1,
         }
 
-        response = requests.get(search_api_server, params=search_params)
+        response = requests.get(search_api_server, params=search_params)  # Поиск организации
 
         if not response:
             update.message.reply_text("Что-то пошло не так. Возможно с сервером лажа или с вашим запросом.")
@@ -362,7 +362,9 @@ def help(bot, update):  # /help
                               'Курс валют - берётся с ЦБ РФ.\n'
                               'Ближайшее - вы вводите место откуда искать и что искать,'
                               ' а бот показвает ближайшее к месту совпадение.\n'
-                              '/stop - чтобы прекратить рассылку погоды.')
+                              '/stop - чтобы прекратить рассылку погоды.\n'
+                              'Дополнительно: можете отправить боту(или переслать) аудиосообщение'
+                              ', а он преобразует его в текст и отправит вам.')
 
 
 def per1(bot, update):  # ревёрс переводчика
@@ -375,7 +377,7 @@ def per2(bot, update):  # ревёрс переводчика
     update.message.reply_text("Ок, изменил")
 
 
-def restart(bot):
+def restart(bot):  # При перезапуске делает рассылку
     a = news.get_all()
     for i in a:
         idd = i[-2]
@@ -383,7 +385,7 @@ def restart(bot):
             bot.send_message(idd, 'Для продолжения отправки погоды нажмите /start')
 
 
-def audio_reply(bot, update):
+def audio_reply(bot, update):  # Преобразование аудиосообщений в текст
     global private_key, service_account_id, key_id
 
     audio = update.message.voice
@@ -401,13 +403,13 @@ def audio_reply(bot, update):
             return
 
         file_pa = response.json()['result']['file_path']
-        response = requests.get(zapr2.format(file_pa))
+        response = requests.get(zapr2.format(file_pa))  # Запрос пути к файлу
 
         if not response:
             update.message.reply_text("Что-то пошло не так. Возможно с сервером лажа или с вашим запросом.")
             return
 
-        file = open("speech.ogg", "wb")
+        file = open("speech.ogg", "wb")  # Сохранение файла
         file.write(response.content)
         file.close()
 
@@ -447,19 +449,21 @@ def audio_reply(bot, update):
 
         url.add_header("Authorization", "Bearer %s" % IAM_TOKEN)
 
-        responseData = urllib.request.urlopen(url).read().decode('UTF-8')
+        responseData = urllib.request.urlopen(url).read().decode('UTF-8')  # Запрос через api.cloud.yandex
         decodedData = json.loads(responseData)
 
         if decodedData.get("error_code") is None:
             text = decodedData.get("result")
+            if len(text) > 1:
+                text = text[0].upper() + text[1:]
 
-        update.message.reply_text("Вот что было сказано: {}".format(text))
+        update.message.reply_text("Вот что было сказано: '{}'.".format(text))
 
-    except Exception:
+    except Exception:  # Обработка исключений
         update.message.reply_text("Что-то пошло не так. Возможно с сервером лажа или с вашим запросом.")
 
 
-def main():
+def main():  # Обработка всех обновлений(сообщений)
     updater = Updater("812759520:AAG5XoYRenwYAj04vGQGlcgWL4uX57UfAX4")
 
     dp = updater.dispatcher
@@ -487,9 +491,9 @@ def main():
 
 
 if __name__ == '__main__':
-    Artem = DB()
+    Artem = DB()  # Создание и подключение баз данных
     go_rassyl = True
-    service_account_id = "ajenl8v0h30nqktgu9gh"
+    service_account_id = "ajenl8v0h30nqktgu9gh"  # yandex id
     key_id = "ajevhga6oa34n10mm42g"
     with open("private.pem", 'r') as private:
         private_key = private.read()
