@@ -2,7 +2,10 @@ from telegram.ext import Updater, MessageHandler, Filters, CommandHandler
 import random
 import requests
 import sqlite3
-import datetime
+import time
+import jwt
+import urllib.request
+import json
 from telegram import ReplyKeyboardRemove, ReplyKeyboardMarkup
 
 
@@ -45,6 +48,7 @@ class NewsModel:  # class постов в базе данных
 
     def init_table(self):
         cursor = self.connection.cursor()
+
         cursor.execute('''CREATE TABLE IF NOT EXISTS posts 
                             (id INTEGER PRIMARY KEY AUTOINCREMENT, 
                              start VARCHAR(100),
@@ -57,6 +61,7 @@ class NewsModel:  # class постов в базе данных
                              user_id VARCHAR(100),
                              timecode VARCHAR(100)
                              )''')
+
         cursor.close()
         self.connection.commit()
 
@@ -70,11 +75,11 @@ class NewsModel:  # class постов в базе данных
         cursor.close()
         self.connection.commit()
 
-    def update(self, id, what, now):
+    def update(self, idd, what, now):
         cursor = self.connection.cursor()
         cursor.execute('''UPDATE posts SET 
                                    {} = ? 
-                                   WHERE user_id = ?'''.format(what), (now, id))
+                                   WHERE user_id = ?'''.format(what), (now, idd))
         cursor.close()
         self.connection.commit()
 
@@ -88,13 +93,11 @@ class NewsModel:  # class постов в базе данных
         cursor = self.connection.cursor()
         cursor.execute("SELECT * FROM posts")
         rows = cursor.fetchall()
-        if set_up:
-            rows = sorted(rows)
         return rows
 
     def delete(self, news_id):
         cursor = self.connection.cursor()
-        cursor.execute('''DELETE FROM posts WHERE id = ?''', ([str(news_id)]))
+        cursor.execute('''DELETE FROM posts WHERE user_id = ?''', ([str(news_id)]))
         cursor.close()
         self.connection.commit()
 
@@ -111,6 +114,7 @@ def close_keyboard(bot, update, job_queue, chat_data):
 
 
 def start(bot, update):  # Старт
+    news.delete(update.message.chat_id)
     news.insert('True', 'True', 'False', 'en-ru', 'False', 'False', update.message.chat_id)
     update.message.reply_text("Привет, я бот и я могу кое в чём тебе помочь!\nДля начала напиши город для которого ты"
                               " хотел бы получать прогноз погоды.")
@@ -118,8 +122,8 @@ def start(bot, update):  # Старт
 
 def task(bot, job):  # Обработка погоды и отправка пользователю
 
-    if news.get(job.context[0].message.chat_id, 'pogoda'):
-        response = requests.post(weather.format(news.get(job.context[0].message.chat_id, 'city')))
+    if news.get(job.context[0].message.chat_id, 'pogoda')[0]:
+        response = requests.post(weather.format(news.get(job.context[0].message.chat_id, 'from_where')[0]))
         response = response.json()
         if response['cod'] == 200:
             descr = response['weather'][0]['description']
@@ -179,16 +183,21 @@ def wiki(bot, update, mes):  # Обработка запросов по вики
 def cb_rf(bot, update):  # Обработка запроса валют
     try:
         response = requests.get(cb_rf_search)
+
         if response:
             response = response.json()
+
             try:
                 update.message.reply_text('Рубль - Евро: {} = 1\nРубль - Доллар: {} = 1'
                                           .format(response['Valute']['EUR']['Value'],
                                                   response['Valute']['USD']['Value']))
+
             except Exception:
                 update.message.reply_text("Что-то пошло не так. Возможно с сервером лажа или с вашим запросом.")
+
         else:
             update.message.reply_text("Что-то пошло не так. Возможно с сервером лажа или с вашим запросом.")
+
     except Exception:
         update.message.reply_text("Что-то пошло не так. Возможно с сервером лажа или с вашим запросом.")
 
@@ -199,11 +208,12 @@ def translater(bot, update, mes):  # Обработка запросов по п
             translator_uri,
             params={
                 "key": translate_key,
-                "lang": news.get(update.message.chat_id, 'napr'),
+                "lang": news.get(update.message.chat_id, 'napr')[0],
                 "text": mes
             })
         update.message.reply_text(
             "\n\n".join([response.json()["text"][0]]), reply_markup=markup)
+
     except Exception:
         update.message.reply_text("Что-то пошло не так. Возможно с сервером лажа.",
                                   reply_markup=markup)
@@ -213,15 +223,18 @@ def geocoder(bot, update, mes):  # Отправка фото "Ближайшее
     try:
         geocoder_uri = geocoder_request_template = \
             "http://geocode-maps.yandex.ru/1.x/"
+
         response = requests.get(geocoder_uri, params={
             "format": "json",
-            "geocode": news.get(update.message.chat_id, 'from_where')
+            "geocode": news.get(update.message.chat_id, 'from_where')[0]
         })
+
         if not response:
             update.message.reply_text("Ошибка выполнения запроса:")
             update.message.reply_text(geocoder_request)
             update.message.reply_text("Http статус:", response.status_code, "(", response.reason, ")")
             return
+
         toponym1 = response.json()["response"]["GeoObjectCollection"]["featureMember"][0]["GeoObject"]["Point"]["pos"]
         toponym1 = ','.join(toponym1.split(' '))
 
@@ -231,7 +244,9 @@ def geocoder(bot, update, mes):  # Отправка фото "Ближайшее
             "lang": "ru_RU",
             "ll": toponym1,
         }
+
         response = requests.get(search_api_server, params=search_params)
+
         if not response:
             update.message.reply_text("Что-то пошло не так. Возможно с сервером лажа или с вашим запросом.")
             return
@@ -242,10 +257,12 @@ def geocoder(bot, update, mes):  # Отправка фото "Ближайшее
         toponym2 = ','.join([str(organization['geometry']['coordinates'][0]),
                              str(organization['geometry']['coordinates'][1])])
         org_address = organization["properties"]["CompanyMetaData"]["address"]
+
         for_photo = org_name + '\nАдрес: ' + org_address
         #
         static_api_request = \
             "http://static-maps.yandex.ru/1.x/?l=map&pt={},ya_ru~{},pm2ntm".format(toponym1, toponym2)
+
         bot.sendPhoto(
             update.message.chat.id,
             static_api_request,
@@ -257,18 +274,22 @@ def geocoder(bot, update, mes):  # Отправка фото "Ближайшее
 
 
 def text_m(bot, update, job_queue, chat_data):  # обработка сообщений
-    global reply_keyboard, markup
-    text_mes = update.message.text
-    print(news.get(update.message.chat_id, 'start'))
+    global reply_keyboard, markup, go_rassyl
 
-    if news.get(update.message.chat_id, 'start') == 'True':
+    if go_rassyl:
+        go_rassyl = False
+        restart(bot)
+    text_mes = update.message.text
+
+    if news.get(update.message.chat_id, 'start')[0] == 'True':
         news.update(update.message.chat_id, 'start', 'False4444')
-        news.update(update.message.chat_id, 'city', 'text_mes')
+        news.update(update.message.chat_id, 'from_where', text_mes)
+        print
         update.message.reply_text('Принял. Через сколько часов сделать первое оповещание(далее каждые 24 часа)?\n '
                                   'Написать нужно только число, иначе за ответ примется 12')
         return
 
-    elif news.get(update.message.chat_id, 'start') == "False4444":
+    elif news.get(update.message.chat_id, 'start')[0] == "False4444":
         try:
             text_mes = int(text_mes)
         except Exception:
@@ -277,20 +298,20 @@ def text_m(bot, update, job_queue, chat_data):  # обработка сообщ�
         news.update(update.message.chat_id, 'start', 'False')
         update.message.reply_text('Ok!', reply_markup=markup)
 
-    elif news.get(update.message.chat_id, 'wiki') == 'True':
+    elif news.get(update.message.chat_id, 'wiki')[0] == 'True':
         wiki(bot, update, text_mes)
         news.update(update.message.chat_id, 'wiki', 'False')
 
-    elif news.get(update.message.chat_id, 'tran') == 'True':
+    elif news.get(update.message.chat_id, 'tran')[0] == 'True':
         translater(bot, update, text_mes)
         news.update(update.message.chat_id, 'tran', 'False')
 
-    elif news.get(update.message.chat_id, 'bliz') == 'True':
+    elif news.get(update.message.chat_id, 'bliz')[0] == 'True':
         news.update(update.message.chat_id, 'bliz', 'True444')
         news.update(update.message.chat_id, 'from_where', text_mes)
         update.message.reply_text('Теперь введите то, что нужно найти(магазин, аптека и т.д.)')
 
-    elif news.get(update.message.chat_id, 'bliz') == "True444":
+    elif news.get(update.message.chat_id, 'bliz')[0] == "True444":
         news.update(update.message.chat_id, 'bliz', 'False')
         geocoder(bot, update, text_mes)
 
@@ -354,6 +375,90 @@ def per2(bot, update):  # ревёрс переводчика
     update.message.reply_text("Ок, изменил")
 
 
+def restart(bot):
+    a = news.get_all()
+    for i in a:
+        idd = i[-2]
+        if i[1] != 'True':
+            bot.send_message(idd, 'Для продолжения отправки погоды нажмите /start')
+
+
+def audio_reply(bot, update):
+    global private_key, service_account_id, key_id
+
+    audio = update.message.voice
+    audio = audio['file_id']
+    text = ''
+
+    try:
+        zapr1 = 'https://api.telegram.org/bot812759520:AAG5XoYRenwYAj04vGQGlcgWL4uX57UfAX4/getFile?file_id={}'\
+            .format(audio)
+        zapr2 = 'https://api.telegram.org/file/bot812759520:AAG5XoYRenwYAj04vGQGlcgWL4uX57UfAX4/{}'
+        response = requests.get(zapr1)
+
+        if not response:
+            update.message.reply_text("Что-то пошло не так. Возможно с сервером лажа или с вашим запросом.")
+            return
+
+        file_pa = response.json()['result']['file_path']
+        response = requests.get(zapr2.format(file_pa))
+
+        if not response:
+            update.message.reply_text("Что-то пошло не так. Возможно с сервером лажа или с вашим запросом.")
+            return
+
+        file = open("speech.ogg", "wb")
+        file.write(response.content)
+        file.close()
+
+        now = int(time.time())
+        payload = {
+            'aud': 'https://iam.api.cloud.yandex.net/iam/v1/tokens',
+            'iss': service_account_id,
+            'iat': now,
+            'exp': now + 3600}
+
+        # Формирование JWT.
+        encoded_token = jwt.encode(
+            payload,
+            private_key,
+            algorithm='PS256',
+            headers={'kid': key_id})
+
+        zapr = 'https://iam.api.cloud.yandex.net/iam/v1/tokens'
+
+        params = {'jwt': encoded_token}
+
+        response = requests.post(zapr, params=params)
+
+        IAM_TOKEN = response.json()['iamToken']
+        FOLDER_ID = 'b1gcn28r5b7uj1grtb48'
+
+        with open("speech.ogg", "rb") as f:
+            data = f.read()
+
+        params = "&".join([
+            "topic=general",
+            "folderId=%s" % FOLDER_ID,
+            "lang=ru-RU",
+        ])
+
+        url = urllib.request.Request("https://stt.api.cloud.yandex.net/speech/v1/stt:recognize?%s" % params, data=data)
+
+        url.add_header("Authorization", "Bearer %s" % IAM_TOKEN)
+
+        responseData = urllib.request.urlopen(url).read().decode('UTF-8')
+        decodedData = json.loads(responseData)
+
+        if decodedData.get("error_code") is None:
+            text = decodedData.get("result")
+
+        update.message.reply_text("Вот что было сказано: {}".format(text))
+
+    except Exception:
+        update.message.reply_text("Что-то пошло не так. Возможно с сервером лажа или с вашим запросом.")
+
+
 def main():
     updater = Updater("812759520:AAG5XoYRenwYAj04vGQGlcgWL4uX57UfAX4")
 
@@ -371,7 +476,10 @@ def main():
 
     text_handler = MessageHandler(Filters.text, text_m, pass_job_queue=True, pass_chat_data=True)
 
+    text_handler2 = MessageHandler(Filters.voice, audio_reply)
+
     dp.add_handler(text_handler)
+    dp.add_handler(text_handler2)
 
     updater.start_polling()
 
@@ -380,6 +488,11 @@ def main():
 
 if __name__ == '__main__':
     Artem = DB()
+    go_rassyl = True
+    service_account_id = "ajenl8v0h30nqktgu9gh"
+    key_id = "ajevhga6oa34n10mm42g"
+    with open("private.pem", 'r') as private:
+        private_key = private.read()
     news = NewsModel(Artem.get_connection())
     news.init_table()
     reply_keyboard = [['Поиск Wiki', 'Переводчик'],
