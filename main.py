@@ -284,7 +284,6 @@ def text_m(bot, update, job_queue, chat_data):  # обработка сообщ�
     if news.get(update.message.chat_id, 'start')[0] == 'True':
         news.update(update.message.chat_id, 'start', 'False4444')
         news.update(update.message.chat_id, 'from_where', text_mes)
-        print
         update.message.reply_text('Принял. Через сколько часов сделать первое оповещание(далее каждые 24 часа)?\n '
                                   'Написать нужно только число, иначе за ответ примется 12')
         return
