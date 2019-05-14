@@ -418,7 +418,7 @@ def audio_reply(bot, update):  # Преобразование аудиосооб
             'aud': 'https://iam.api.cloud.yandex.net/iam/v1/tokens',
             'iss': service_account_id,
             'iat': now,
-            'exp': now + 3600}
+            'exp': now + 360}
 
         # Формирование JWT.
         encoded_token = jwt.encode(
@@ -432,12 +432,20 @@ def audio_reply(bot, update):  # Преобразование аудиосооб
         params = {'jwt': encoded_token}
 
         response = requests.post(zapr, params=params)
-
         IAM_TOKEN = response.json()['iamToken']
         FOLDER_ID = 'b1gcn28r5b7uj1grtb48'
 
         with open("speech.ogg", "rb") as f:
             data = f.read()
+
+        url = 'https://stt.api.cloud.yandex.net/speech/v1/stt:recognize?topic=general&folderId={}&lang=ru-RU'\
+            .format(FOLDER_ID)
+
+        headers = {"Authorization": "Bearer {}".format(IAM_TOKEN)}
+
+        file1 = requests.post(url, headers = headers, data = data).json()
+
+        text = file1['result']
 
         params = "&".join([
             "topic=general",
@@ -449,13 +457,15 @@ def audio_reply(bot, update):  # Преобразование аудиосооб
 
         url.add_header("Authorization", "Bearer %s" % IAM_TOKEN)
 
-        responseData = urllib.request.urlopen(url).read().decode('UTF-8')  # Запрос через api.cloud.yandex
-        decodedData = json.loads(responseData)
+        #  Запасной код
+        #  responseData = urllib.request.urlopen(url).read().decode('UTF-8')  # Запрос через api.cloud.yandex
+        #  decodedData = json.loads(responseData)
 
-        if decodedData.get("error_code") is None:
-            text = decodedData.get("result")
-            if len(text) > 1:
-                text = text[0].upper() + text[1:]
+        #  if decodedData.get("error_code") is None:
+        #      text = decodedData.get("result")
+
+        if len(text) > 1:
+            text = text[0].upper() + text[1:]
 
         update.message.reply_text("Вот что было сказано: '{}'.".format(text))
 
